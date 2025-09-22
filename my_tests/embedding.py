@@ -1,6 +1,8 @@
 import os
 import urllib.request
 
+import argparse
+
 import numpy as np
 #import pytest
 import scanpy as sc
@@ -18,15 +20,23 @@ from scprint.tasks import Denoiser, Embedder, GNInfer
 import torch
 torch.set_float32_matmul_precision('medium')
 
-adata = sc.read_h5ad("/mnt/sda/DATASETS/Single_nucleus_RNA-seq_adult_human_kidney/1568e555-7c47-4b32-9f29-cda5717e9186.h5ad")
+parser = argparse.ArgumentParser(description="")
+parser.add_argument('-i', '--input', help='Input h5ad file', default='/mnt/sda/DATASETS/Single_nucleus_RNA-seq_adult_human_kidney/1568e555-7c47-4b32-9f29-cda5717e9186.h5ad')
+parser.add_argument('-o', '--output', help='Output h5ad file', default='/mnt/sda/DATASETS/Single_nucleus_RNA-seq_adult_human_kidney/embedded_data.h5ad')
+parser.add_argument('-n', '--ontology', help='organism_ontology_term_id', default='NCBITaxon:9606')
+parser.add_argument('-m', '--model', help='path of the .ckpt model', default='models/v2-medium.ckpt')
+parser.add_argument('-g', '--missing', help='path for the file on mismatching genes', default='/mnt/sda/DATASETS/Single_nucleus_RNA-seq_adult_human_kidney/missing_genes_ids.json')
+args = parser.parse_args()
+
+adata = sc.read_h5ad(args.inpu)
 adata.obs.drop(columns="is_primary_data", inplace=True)
-adata.obs["organism_ontology_term_id"] = "NCBITaxon:9606"
+adata.obs["organism_ontology_term_id"] = args.ontology
 preprocessor = Preprocessor(
     do_postp=False
 )
 adata = preprocessor(adata)
 
-ckpt_path = "models/v2-medium.ckpt"
+ckpt_path = args.model
 m = torch.load(ckpt_path)
 transformer = "flash" if torch.cuda.is_available() else "normal"
 model = scPrint.load_from_checkpoint(
@@ -46,10 +56,8 @@ if len(missing) > 0:
         "Warning: some genes missmatch exist between model and ontology: solving...",
     )
     model._rm_genes(missing)
-    with open('/mnt/sda/DATASETS/Single_nucleus_RNA-seq_adult_human_kidney/missing_genes_ids.json', 'w') as f:
+    with open(args.missing, 'w') as f:
         json.dump(list(missing), f)
-
-input('OK')
         
 # you can perform your inference on float16 if you have a GPU, otherwise use float64
 dtype = torch.float16 if torch.cuda.is_available() else torch.float32
@@ -74,5 +82,5 @@ embedder = Embedder(
 
 adata, metrics = embedder(model, adata, cache=False)
 
-adata.write_h5ad("/mnt/sda/DATASETS/Single_nucleus_RNA-seq_adult_human_kidney/embedded_data.h5ad")
+adata.write_h5ad(args.output)
 
